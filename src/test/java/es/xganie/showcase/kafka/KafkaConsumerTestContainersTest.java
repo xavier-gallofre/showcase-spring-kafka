@@ -1,31 +1,43 @@
 package es.xganie.showcase.kafka;
 
 import es.xganie.showcase.service.RecordProcessorService;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.kafka.core.KafkaTemplate;
-import org.springframework.kafka.test.context.EmbeddedKafka;
-import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.testcontainers.containers.KafkaContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.utility.DockerImageName;
 
 import java.time.Duration;
-import java.util.concurrent.TimeUnit;
 
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 @SpringBootTest
-@DirtiesContext
-@EmbeddedKafka(partitions = 1, brokerProperties = {"listeners=PLAINTEXT://localhost:9092", "port=9092"})
-class KafkaConsumerTest {
+@Testcontainers
+public class KafkaConsumerTestContainersTest {
+
+    @Container
+    static final KafkaContainer kafka = new KafkaContainer(
+            DockerImageName.parse("confluentinc/cp-kafka:7.4.0")
+    );
+
+    @DynamicPropertySource
+    static void overrideProperties(DynamicPropertyRegistry registry) {
+        registry.add("spring.kafka.bootstrap-servers", kafka::getBootstrapServers);
+    }
 
     @Autowired
-    private KafkaTemplate<String, String> kafkaTemplate;
+    private KafkaTemplate<String, Object> kafkaTemplate;
 
     @Value("${showcase.kafka.topic}")
     private String topic;
@@ -33,13 +45,13 @@ class KafkaConsumerTest {
     @MockBean
     RecordProcessorService recordProcessorService;
 
-    @DisplayName("When a message is sent to kafka topic, then the message is process with a service")
     @Test
-    void whenMessageIsSentToKafka_thenProcessIsCalledWithMessage() {
+    void shouldHandleProductPriceChangedEvent() {
+
         kafkaTemplate.send(topic, "Hello World");
         await()
                 .pollInterval(Duration.ofMillis(250))
-                .atMost(2, TimeUnit.SECONDS)
+                .atMost(10, SECONDS)
                 .untilAsserted(() -> verify(recordProcessorService, times(1)).process(anyString()));
     }
 
